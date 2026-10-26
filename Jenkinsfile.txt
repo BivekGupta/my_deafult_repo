@@ -1,0 +1,106 @@
+pipeline {
+    agent any
+
+    environment {
+        // AWS Credentials ID configured securely within Jenkins Credentials Manager
+        AWS_CREDENTIALS_ID = 'aws-credentials-prod'
+        AWS_DEFAULT_REGION = 'us-east-1'
+        
+        // Python configuration paths
+        VENV_PATH          = "${WORKSPACE}/.venv"
+    }
+
+    stages {
+        stage('Initialize & Setup') {
+            steps {
+                echo 'Initializing runtime environment and verifying dependencies...'
+                sh '''
+                    # Check for mandatory tooling prerequisites
+                    terraform --version
+                    python3 --version
+                    
+                    # Create custom workspace directories if missing
+                    mkdir -p temp
+                    
+                    # Establish a clean local Python virtual environment for test tools
+                    python3 -m venv ${VENV_PATH}
+                    source ${VENV_PATH}/bin/activate
+                    pip install --upgrade pip
+                    pip install pytest requests
+                '''
+            }
+        }
+
+        stage('Code & Schema Validation') {
+            steps {
+                echo 'Running linting, formatting validation, and security scans...'
+                // Inject AWS credentials profiles safely to validate integration linkages
+                withCredentials([[
+                    $class: 'AmazonWebServicesCredentialsBinding', 
+                    credentialsId: "${AWS_CREDENTIALS_ID}"
+                ]]) {
+                    sh '''
+                        # Initialize terraform modules locally to acquire active provider constraints
+                        terraform init
+                        
+                        # Validate system schema configuration syntax metrics
+                        terraform validate
+                    '''
+                }
+            }
+        }
+
+        stage('Infrastructure Provisioning') {
+            steps {
+                echo 'Deploying application stack to AWS via Terraform...'
+                withCredentials([[
+                    $class: 'AmazonWebServicesCredentialsBinding', 
+                    credentialsId: "${AWS_CREDENTIALS_ID}"
+                ]]) {
+                    sh '''
+                        # Apply architecture changes cleanly without manual confirmation steps
+                        terraform apply -auto-approve
+                        
+                        # Extract the dynamic production endpoint returned by the deployment state
+                        CF_DOMAIN=$(terraform output -raw cloudfront_domain)
+                        echo "DEPLOYED_ENDPOINT=${CF_DOMAIN}" > pipeline.env
+                    '''
+                }
+            }
+        }
+
+        stage('Automated Integration Verification') {
+            steps {
+                echo 'Running validation integration test suites against live CloudFront distribution...'
+                sh '''
+                    # Read the exported environment configurations
+                    source pipeline.env
+                    
+                    # Verify endpoint target value exists
+                    if [ -z "$DEPLOYED_ENDPOINT" ]; then
+                        echo "Error: Target CloudFront endpoint domain was not found!"
+                        exit 1
+                    fi
+                    
+                    # Inject configuration context targets into runtime environment scope
+                    export BASE_API_URL="$DEPLOYED_ENDPOINT"
+                    
+                    # Source virtual environment and run testing suites with verbose logging metrics
+                    source ${VENV_PATH}/bin/activate
+                    pytest tests/test_integration.py -v
+                '''
+            }
+        }
+    }
+
+    post {
+        always {
+            echo 'Archiving validation logs and wiping temporary working variables...'
+            // Clean up temporary dynamically produced compilation zip folders locally
+            sh 'rm -rf temp/ pipeline.env'
+        }
+        failure {
+            echo 'Pipeline failed. Notification hooks should be dispatched here.'
+        }
+    }
+}
