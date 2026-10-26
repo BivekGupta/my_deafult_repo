@@ -32,13 +32,15 @@ Ensure your code structures match the generated components inside the package fr
 3. Deploy the application and infrastructure
 Authenticate to your AWS account and execute the jenkinsfile to run all scripts using Jenkins tool
 
-# Provision resources completely without prompt approvals
-terraform apply -auto-approve
-Note: Upon successful deployment, the terminal will print out the outputs including the primary CloudFront API endpoints.
-
 4. Execute Automated Integration Tests
 Set the baseline target URL parameter returned by your infrastructure build, then run the validation suites:bash
 export BASE_API_URL="https://<your-distribution-id>.cloudfront.net"
 pip install pytest requests
 pytest tests/test_integration.py -v
+
+**Architecture**
+
+<img width="999" height="515" alt="Architecture" src="https://github.com/user-attachments/assets/b6311c08-e601-453b-87de-f4bf4f056577" />
+
+
  
